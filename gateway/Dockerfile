@@ -15,5 +15,4 @@ RUN npm install --omit=dev
 COPY --from=builder /app/gateway/dist ./dist
 USER node
 EXPOSE 8080
-# Path logic: rootDir is "../", so src is 1 level deep in dist
-CMD ["node", "dist/src/index.js"]
+CMD ["sh", "-c", "node $(find dist -name index.js)"]

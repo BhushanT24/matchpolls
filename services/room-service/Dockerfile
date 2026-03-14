@@ -15,4 +15,4 @@ RUN npm install --omit=dev
 COPY --from=builder /app/services/room-service/dist ./dist
 USER node
 EXPOSE 3001
-CMD ["node", "dist/services/room-service/src/index.js"]
+CMD ["sh", "-c", "node $(find dist -name index.js)"]

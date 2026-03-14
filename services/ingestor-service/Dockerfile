@@ -15,5 +15,4 @@ RUN npm install --omit=dev
 COPY --from=builder /app/services/ingestor-service/dist ./dist
 USER node
 EXPOSE 3000
-# Path logic: rootDir is "../../", so it mirrors the full tree in dist
-CMD ["node", "dist/services/ingestor-service/src/index.js"]
+CMD ["sh", "-c", "node $(find dist -name index.js)"]

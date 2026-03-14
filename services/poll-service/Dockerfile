@@ -15,4 +15,4 @@ RUN npm install --omit=dev
 COPY --from=builder /app/services/poll-service/dist ./dist
 USER node
 EXPOSE 3002
-CMD ["node", "dist/services/poll-service/src/index.js"]
+CMD ["sh", "-c", "node $(find dist -name index.js)"]
