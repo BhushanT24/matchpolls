@@ -1,0 +1,90 @@
+version: '3.8'
+
+# --- NETWORKS ---
+# We isolate internal service traffic from external user traffic.
+networks:
+  public-gateway: # External traffic (User -> Gateway)
+    driver: bridge
+  internal-mesh:  # Internal traffic (Service -> DB / Service -> Service)
+    driver: bridge
+
+# --- VOLUMES ---
+# Persistent storage so data survives container restarts.
+volumes:
+  postgres_data:
+  mongo_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+
+services:
+  # 1. THE RELATIONAL STORE (SQL)
+  # Best for: Auth, Transactions, User Profiles.
+  postgres:
+    image: postgres:15-alpine
+    container_name: infra_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    networks:
+      - internal-mesh
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # 2. THE DOCUMENT STORE (NoSQL)
+  # Best for: Flexible schemas, logs, or real-time feeds.
+  mongodb:
+    image: mongo:latest
+    container_name: infra_mongo
+    restart: always
+    ports:
+      - "27017:27017"
+    networks:
+      - internal-mesh
+    volumes:
+      - mongo_data:/data/db
+
+  # 3. THE MESSAGE BROKER & CACHE
+  # Best for: Pub/Sub, Real-time updates, and Session storage.
+  redis:
+    image: redis:alpine
+    container_name: infra_redis
+    restart: always
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    networks:
+      - internal-mesh
+    volumes:
+      - redis_data:/data
+
+  # 4. MONITORING (The "Eyes" of your system)
+  # Best for: Tracking CPU, Latency, and Error rates.
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: infra_prometheus
+    restart: always
+    volumes:
+      - prometheus_data:/prometheus
+    networks:
+      - internal-mesh
+    ports:
+      - "9090:9090"
+
+  # 5. VISUALIZATION (The "Face" of your metrics)
+  # Best for: Creating Dashboards for your interviews.
+  grafana:
+    image: grafana/grafana:latest
+    container_name: infra_grafana
+    restart: always
+    depends_on:
+      - prometheus
+    ports:
+      - "3000:3000"
+    networks:
+      - internal-mesh
+    volumes:
+      - grafana_data:/var/lib/grafana
