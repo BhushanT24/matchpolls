@@ -1,15 +1,13 @@
 version: '3.8'
 
 # --- NETWORKS ---
-# We isolate internal service traffic from external user traffic.
 networks:
-  public-gateway: # External traffic (User -> Gateway)
+  public-gateway: 
     driver: bridge
-  internal-mesh:  # Internal traffic (Service -> DB / Service -> Service)
+  internal-mesh:  
     driver: bridge
 
 # --- VOLUMES ---
-# Persistent storage so data survives container restarts.
 volumes:
   postgres_data:
   mongo_data:
@@ -19,7 +17,6 @@ volumes:
 
 services:
   # 1. THE RELATIONAL STORE (SQL)
-  # Best for: Auth, Transactions, User Profiles.
   postgres:
     image: postgres:15-alpine
     container_name: infra_postgres
@@ -33,9 +30,13 @@ services:
       - internal-mesh
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   # 2. THE DOCUMENT STORE (NoSQL)
-  # Best for: Flexible schemas, logs, or real-time feeds.
   mongodb:
     image: mongo:latest
     container_name: infra_mongo
@@ -46,9 +47,13 @@ services:
       - internal-mesh
     volumes:
       - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   # 3. THE MESSAGE BROKER & CACHE
-  # Best for: Pub/Sub, Real-time updates, and Session storage.
   redis:
     image: redis:alpine
     container_name: infra_redis
@@ -60,22 +65,24 @@ services:
       - internal-mesh
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
-  # 4. MONITORING (The "Eyes" of your system)
-  # Best for: Tracking CPU, Latency, and Error rates.
+  # 4. MONITORING & VISUALIZATION
   prometheus:
     image: prom/prometheus:latest
     container_name: infra_prometheus
     restart: always
-    volumes:
-      - prometheus_data:/prometheus
     networks:
       - internal-mesh
     ports:
       - "9090:9090"
+    volumes:
+      - prometheus_data:/prometheus
 
-  # 5. VISUALIZATION (The "Face" of your metrics)
-  # Best for: Creating Dashboards for your interviews.
   grafana:
     image: grafana/grafana:latest
     container_name: infra_grafana
@@ -88,3 +95,65 @@ services:
       - internal-mesh
     volumes:
       - grafana_data:/var/lib/grafana
+
+  # --- APPLICATION MICROSERVICES ---
+
+  gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    container_name: gateway-service
+    ports:
+      - "8080:8080"
+    networks:
+      - public-gateway
+      - internal-mesh
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      - REDIS_URL=redis://infra_redis:6379
+      - NODE_ENV=production
+
+  ingestor-service:
+    build:
+      context: .
+      dockerfile: services/ingestor-service/Dockerfile
+    container_name: ingestor-service
+    networks:
+      - internal-mesh
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      - REDIS_URL=redis://infra_redis:6379
+      - CRICKET_API_KEY=${CRICKET_API_KEY}
+
+  poll-service:
+    build:
+      context: .
+      dockerfile: services/poll-service/Dockerfile
+    container_name: poll_service
+    networks:
+      - internal-mesh
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      - REDIS_URL=redis://infra_redis:6379
+
+  room-service:
+    build:
+      context: .
+      dockerfile: services/room-service/Dockerfile
+    container_name: room_service
+    networks:
+      - internal-mesh
+    depends_on:
+      redis:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    environment:
+      - REDIS_URL=redis://infra_redis:6379
+      - MONGO_URI=mongodb://infra_mongo:27017/match_polls
