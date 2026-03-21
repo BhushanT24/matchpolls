@@ -1,0 +1,55 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum MatchStatus {
+  LIVE
+  COMPLETED
+}
+
+model Match {
+  id             String      @id
+  homeTeam       String
+  awayTeam       String
+  runs           Int         @default(0)
+  wickets        Int         @default(0)
+  over           Int         @default(0)
+  ball_in_over   Int         @default(0)
+  runs_in_over   Int         @default(0)
+  isOverComplete Boolean     @default(false)
+  status         MatchStatus @default(LIVE)
+  timestamp      BigInt
+  updatedAt      DateTime    @updatedAt
+}
+
+model Room {
+  id          String   @id @default(uuid())
+  name        String
+  matchId     String
+  createdBy   String
+  createdAt   DateTime @default(now())
+}
+
+model UserStats {
+  userId    String
+  roomId    String
+  points    Int    @default(0)
+  correct   Int    @default(0)
+  total     Int    @default(0)
+
+  @@id([userId, roomId])
+}
+
+model MatchWinner {
+  id        String   @id @default(uuid())
+  matchId   String
+  roomId    String
+  userId    String
+  points    Int
+  rank      Int
+  createdAt DateTime @default(now())
+}

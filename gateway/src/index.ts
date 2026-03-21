@@ -1,43 +1,53 @@
-import express, { Request, Response } from 'express';
 import { createClient } from 'redis';
-import cors from 'cors';
-import { MatchUpdate } from '../../packages/shared/types.js';
+import { MatchUpdateSchema, type MatchUpdate } from '../../packages/shared/types.js';
 
-const app = express();
-const PORT = 8080;
+const REDIS_URL = process.env.REDIS_URL || 'redis://infra_redis:6379';
+const publisher = createClient({ url: REDIS_URL });
 
-app.use(cors());
-app.use(express.json());
+// Simulation function: In production, this replaces an Axios call to a Sports API
+const fetchExternalData = (): Partial<MatchUpdate> => {
+  return {
+    matchId: "live-001",
+    homeTeam: "India",
+    awayTeam: "Australia",
+    score: `${Math.floor(Math.random() * 300)}/2`,
+    event: "Live Coverage",
+    timestamp: Date.now(),
+  };
+};
 
-const subscriber = createClient({ url: 'redis://infra_redis:6379' });
+const startIngestion = async () => {
+  await publisher.connect();
+  console.log("📥 Ingestor Service connected to Redis");
 
-// --- SSE Endpoint ---
-// This is what the frontend connects to: new EventSource('/stream')
-app.get('/stream', async (req: Request, res: Response) => {
-    // 1. Set Headers for SSE
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
+  // Polling Loop (Production: Use a proper scheduler or webhook)
+  setInterval(async () => {
+    try {
+      const rawData = fetchExternalData();
 
-    console.log("🔌 Client connected to SSE stream");
+      // PRODUCTION STEP: Validate data before it touches the rest of your system
+      const validation = MatchUpdateSchema.safeParse(rawData);
 
-    // 2. Subscribe to internal Redis events
-    const localSubscriber = subscriber.duplicate();
-    await localSubscriber.connect();
+      if (validation.success) {
+        await publisher.publish('MATCH_STREAM', JSON.stringify(validation.data));
+        console.log(`✅ Published update for ${validation.data.matchId}`);
+      } else {
+        console.error("❌ Invalid data received from API:", validation.error.format());
+      }
+    } catch (error) {
+      console.error("⚠️ Ingestion Error:", error);
+    }
+  }, 5000); // Fetch every 5 seconds
+};
 
-    await localSubscriber.subscribe('MATCH_STREAM', (message) => {
-        // 3. Push data to the client
-        res.write(`data: ${message}\n\n`);
-    });
+// Graceful Shutdown
+const handleShutdown = async () => {
+  console.log("Shutting down Ingestor...");
+  await publisher.quit();
+  process.exit(0);
+};
 
-    // 4. Clean up when client disconnects
-    req.on('close', () => {
-        console.log("❌ Client disconnected");
-        localSubscriber.quit();
-    });
-});
+process.on('SIGINT', handleShutdown);
+process.on('SIGTERM', handleShutdown);
 
-app.listen(PORT, async () => {
-    await subscriber.connect();
-    console.log(`🚀 Gateway running on http://localhost:${PORT}`);
-});
+startIngestion();
